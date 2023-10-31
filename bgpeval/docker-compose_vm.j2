@@ -1,0 +1,84 @@
+version: '3.3'
+services:
+    rpkirtr_server:
+        container_name: rpkirtr_server
+        image: 10.0.1.1:5000/nist-bgp-srx
+        build:
+            dockerfile: Dockerfile
+            context: /opt/srx/NIST-BGP-SRx-master/
+        ports:
+            - 323:323
+        command: 
+            - /bin/sh 
+            - -c 
+            - |
+              yum install -y screen
+              screen -S 'harness' -m -D rpkirtr_svr
+        privileged: true
+        tty: true
+        networks:
+            bgp_net:
+                ipv4_address: 172.30.0.101
+        cap_add:
+            - NET_ADMIN
+
+
+    {% for node in nodes -%}
+    AS_{{ node }}:
+        container_name: AS_{{ node }}
+        image: 10.0.1.1:5000/nist-bgp-srx
+        build:
+            dockerfile: Dockerfile
+            context: /opt/srx/NIST-BGP-SRx-master/
+        configs:
+            - source: AS_{{ node }}
+              target: /usr/etc/bgpd.conf
+            - source: zebra
+              target: /usr/etc/zebra.conf
+            - source: srx_server
+              target: /usr/etc/srx_server.conf
+            - source: srxcryptoapi
+              target: /usr/etc/srxcryptoapi.conf
+        volumes:
+            - /opt/srx/NIST-BGP-SRx-master/examples/bgpsec-keys/:/usr/opt/bgp-srx-examples/bgpsec-keys
+        depends_on:
+            - rpkirtr_server
+            {%if node != 1 -%}
+            - AS_{{node - 1}}
+            {%- endif %}
+        privileged: true
+        command:
+            - /bin/sh
+            - -c
+            - |
+              sed "s/localhost/172.30.0.101/g"  /usr/etc/srx_server.conf > /tmp/srx_server.conf
+              sed "s/srx connect/srx connect 127.0.0.1 17900/g" /usr/etc/bgpd.conf > /etc/bgpd.conf
+              srx_server -f /tmp/srx_server.conf &
+              sleep 5
+              bgpd -u root -f /etc/bgpd.conf &
+              zebra -u root -f /usr/etc/zebra.conf
+        tty: true
+        networks:
+            bgp_net:
+                ipv4_address: {{ router_id[node][0] }}
+        cap_add:
+            - NET_ADMIN
+
+    {% endfor %}
+
+
+configs:
+{%- for node in nodes %}
+    AS_{{ node }}:
+        file: /opt/generator_project/confd/AS_{{ node }}.conf
+{%- endfor %}
+    zebra:
+        file: /opt/generator_project/confd/zebra.conf
+    srx_server:
+        file: /opt/generator_project/confd/srx_server.conf
+    srxcryptoapi:
+        file: /opt/generator_project/confd/srxcryptoapi.conf
+
+networks:
+    bgp_net:
+        external: true

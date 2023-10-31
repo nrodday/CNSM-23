@@ -1,0 +1,22 @@
+# -*- bgp -*-
+#
+# GoBGP sample configuation file
+#
+#
+
+[global.config]
+  as = {{ ASN }}
+  router-id = "{{ router_id }}"
+  key-path = "pwd/bgpsec−keys"
+  SRxServer = "127.0.0.1"
+  ASPA = true
+  ASCONES = false
+
+# Neighbors
+{{ neighbors }}
+
+# Local network:
+
+# {{ local_network }}
+
+

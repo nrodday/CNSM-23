@@ -1,0 +1,67 @@
+version: '3'
+services:
+    rpkirtr_server:
+        container_name: rpkirtr_server
+        image: nist/bgp-srx
+        build:
+            dockerfile: Dockerfile
+            context: /data/nils-data/AS-Cones/NIST-BGP-SRx-master/
+        ports:
+            - 323:323
+        command: 
+            - /bin/sh 
+            - -c 
+            - |
+              yum install -y screen
+              screen -S 'harness' -m -D rpkirtr_svr
+        privileged: true
+        tty: true
+        networks:
+            bgp_net:
+                ipv4_address: 172.30.0.101
+
+    {% for node in nodes -%}
+    AS_{{ node }}:
+        container_name: AS_{{ node }}
+        image: nist/bgp-srx
+        build:
+            dockerfile: Dockerfile
+            context: /data/nils-data/AS-Cones/NIST-BGP-SRx-master/
+        volumes:
+            - /data/nils-data/AS-Cones/NIST-BGP-SRx-master/examples/bgpsec-keys/:/usr/opt/bgp-srx-examples/bgpsec-keys
+            - ./AS_{{ node }}.conf:/usr/etc/bgpd.conf
+            - ./zebra.conf:/usr/etc/zebra.conf
+            - ./srx_server.conf:/usr/etc/srx_server.conf
+            - ./srxcryptoapi.conf:/usr/etc/srxcryptoapi.conf
+        depends_on:
+            - rpkirtr_server
+            {%if node != 1 -%}
+            - AS_{{node - 1}}
+            {%- endif %}
+        privileged: true
+        command:
+            - /bin/sh
+            - -c
+            - |
+              sed "s/localhost/172.30.0.101/g"  /usr/etc/srx_server.conf > /tmp/srx_server.conf
+              sed "s/srx connect/srx connect 127.0.0.1 17900/g" /usr/etc/bgpd.conf > /etc/bgpd.conf
+              srx_server -f /tmp/srx_server.conf &
+              sleep 5
+              bgpd -u root -f /etc/bgpd.conf &
+              zebra -u root -f /usr/etc/zebra.conf
+        tty: true
+        networks:
+            bgp_net:
+                ipv4_address: {{ router_id[node][0] }}
+
+    {% endfor %}
+
+
+networks:
+    bgp_net:
+        ipam:
+            driver: default
+            config: 
+                - subnet: 172.30.0.0/15
+
+        
